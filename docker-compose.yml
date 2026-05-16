@@ -1,0 +1,59 @@
+version: '3.8'
+
+services:
+  # Two-phase ads crawler service
+  two_phase_ads_crawler:
+    build: .
+    container_name: two_phase_ads_crawler
+    restart: always
+    # Instead of host network mode, use environment variables to pass the tunnel addresses
+    # This allows the container to connect to the SSH tunnel endpoints on the host
+    extra_hosts:
+      - "host.docker.internal:host-gateway"  # For newer Docker versions
+      - "localhost:127.0.0.1"               # Map localhost to host IP
+    env_file:
+      - .env.docker
+    environment:
+      # Override the URLs to use host.docker.internal instead of localhost
+      DATABASE_URL: ${DATABASE_URL_OVERRIDE:-${DATABASE_URL}}
+      RABBITMQ_URL: ${RABBITMQ_URL_OVERRIDE:-${RABBITMQ_URL}}
+      WEBDRIVER_URL: http://host.docker.internal:9515
+      PROCESSING_TYPE: two_phase_ads
+      RUN_MODE: consumer
+    volumes:
+      - crawler_avito_feeds_data:/app/avito_feeds_output  # Mount the feeds output directory using named volume
+    command: |
+      sh -c "
+        # Start the Rust crawler application
+        app
+      "
+
+  # Ad details processor service
+  ad_details_processor:
+    build: .
+    container_name: ad_details_processor
+    restart: always
+    # Instead of host network mode, use environment variables to pass the tunnel addresses
+    # This allows the container to connect to the SSH tunnel endpoints on the host
+    extra_hosts:
+      - "host.docker.internal:host-gateway"  # For newer Docker versions
+      - "localhost:127.0.0.1"               # Map localhost to host IP
+    env_file:
+      - .env.docker
+    environment:
+      # Override the URLs to use host.docker.internal instead of localhost
+      DATABASE_URL: ${DATABASE_URL_OVERRIDE:-${DATABASE_URL}}
+      RABBITMQ_URL: ${RABBITMQ_URL_OVERRIDE:-${RABBITMQ_URL}}
+      WEBDRIVER_URL: http://host.docker.internal:9515
+      PROCESSING_TYPE: ad_details
+      RUN_MODE: consumer
+    volumes:
+      - crawler_avito_feeds_data:/app/avito_feeds_output  # Mount the feeds output directory using named volume
+    command: |
+      sh -c "
+        # Start the Rust crawler application
+        app
+      "
+
+volumes:
+  crawler_avito_feeds_data:

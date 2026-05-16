@@ -1,0 +1,24 @@
+/target
+.idea/**
+.vscode/**
+/data/**
+.env
+.env*
+_env
+*__env*
+
+output
+output/**
+
+# misc
+.DS_Store
+*.pem
+
+# production
+/build
+src/controllers/.DS_Store
+src/.DS_Store
+.DS_Store
+
+chromedriver*
+

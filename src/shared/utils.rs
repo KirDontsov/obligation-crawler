@@ -1,0 +1,19 @@
+use chrono::Utc;
+use chrono::{DateTime, NaiveDateTime};
+
+pub fn now() -> DateTime<Utc> {
+    Utc::now()
+}
+
+pub fn current_timestamp() -> i64 {
+    Utc::now().timestamp()
+}
+
+pub fn format_datetime(dt: DateTime<Utc>) -> String {
+    dt.format("%Y-%m-%d %H:%M:%S").to_string()
+}
+
+pub fn parse_timestamp(ts: i64) -> Option<DateTime<Utc>> {
+    NaiveDateTime::from_timestamp_opt(ts, 0)
+        .map(|ndt| DateTime::from_naive_utc_and_offset(ndt, Utc))
+}
