@@ -4,16 +4,16 @@ mod controllers;
 mod database;
 mod error;
 mod models;
+mod repository;
 mod services;
 mod shared;
 
-use chrono::Utc;
 use dotenv::dotenv;
+use sqlx::PgPool;
 use std::env;
 
 use crate::config::CrawlerConfig;
 use crate::error::CrawlerError;
-use crate::models::BondListItem;
 use crate::services::bonds_crawler::BondsCrawler;
 use crate::services::rabbitmq_producer::RabbitMQProducer;
 
@@ -24,10 +24,22 @@ async fn main() -> Result<(), CrawlerError> {
 
     println!("Starting Obligation Crawler...");
 
+    // Initialize DB pool once at startup; crawler continues without DB if unavailable
+    let db_pool: Option<PgPool> = match database::create_connection_pool().await {
+        Ok(pool) => {
+            println!("✅ Database connection pool created");
+            Some(pool)
+        }
+        Err(e) => {
+            eprintln!("⚠️ Database unavailable, continuing without DB: {}", e);
+            None
+        }
+    };
+
     let run_mode = env::var("RUN_MODE").unwrap_or_else(|_| "direct".to_string());
 
     match run_mode.as_str() {
-        "direct" => run_direct_mode().await?,
+        "direct" => run_direct_mode(db_pool).await?,
         "consumer" => run_consumer_mode().await?,
         _ => {
             return Err(CrawlerError::CrawlerError(format!(
@@ -40,7 +52,7 @@ async fn main() -> Result<(), CrawlerError> {
     Ok(())
 }
 
-async fn run_direct_mode() -> Result<(), CrawlerError> {
+async fn run_direct_mode(db_pool: Option<PgPool>) -> Result<(), CrawlerError> {
     let config = CrawlerConfig::from_env()?;
 
     let duration_minutes = env::var("DURATION_MINUTES")
@@ -64,7 +76,7 @@ async fn run_direct_mode() -> Result<(), CrawlerError> {
     };
 
     println!("Starting bonds crawler...");
-    let mut crawler = BondsCrawler::new(config);
+    let mut crawler = BondsCrawler::new(config, db_pool);
 
     let bonds = crawler.run_crawl_loop(duration_minutes).await?;
 

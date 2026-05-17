@@ -1,11 +1,13 @@
 use crate::config::CrawlerConfig;
 use crate::error::{CrawlerError, Result};
 use crate::models::BondListItem;
+use crate::repository::BondsRepository;
 use crate::services::analyze_bond;
 use chrono::Utc;
+use log::{error, info, warn};
 use thirtyfour::{ChromiumLikeCapabilities, DesiredCapabilities, WebDriver, WebElement};
 use tokio::time::{sleep, Duration};
-use log::{info, error, warn};
+use uuid::Uuid;
 
 async fn parse_bond_row_inner(driver: &WebDriver, row: &WebElement, csv_filename: &Option<String>) -> Result<Option<BondListItem>> {
     // Проверяем, что элемент все еще валиден
@@ -287,21 +289,29 @@ pub struct BondsCrawler {
     config: CrawlerConfig,
     driver: Option<WebDriver>,
     csv_filename: Option<String>,
+    db_pool: Option<sqlx::PgPool>,
+    run_id: Option<Uuid>,
 }
 
 impl BondsCrawler {
-    pub fn new(config: CrawlerConfig) -> Self {
+    pub fn new(config: CrawlerConfig, db_pool: Option<sqlx::PgPool>) -> Self {
         let timestamp = Utc::now().format("%d-%m-%Y_%H-%M-%S").to_string();
         let csv_filename = format!("./output/bonds_{}.csv", timestamp);
-        
+
         // Создаем файл с заголовками
         if let Err(e) = BondListItem::create_csv_file(&csv_filename) {
             println!("[DEBUG] Не удалось создать CSV файл: {}", e);
         } else {
             println!("[DEBUG] CSV файл создан: {}", csv_filename);
         }
-        
-        Self { config, driver: None, csv_filename: Some(csv_filename) }
+
+        Self {
+            config,
+            driver: None,
+            csv_filename: Some(csv_filename),
+            db_pool,
+            run_id: None,
+        }
     }
 
     pub async fn initialize(&mut self) -> Result<()> {
@@ -369,6 +379,8 @@ impl BondsCrawler {
         })?;
 
         let csv_filename = self.csv_filename.clone();
+        let db_pool = self.db_pool.clone();
+        let run_id = self.run_id;
         let mut all_bonds = Vec::new();
         let mut page_num = 1;
         let max_pages = 50;
@@ -411,6 +423,12 @@ impl BondsCrawler {
                 
                 match parse_bond_row_inner(driver, &row, &csv_filename).await {
                     Ok(Some(bond)) => {
+                        // Save to database immediately (same pattern as CSV append)
+                        if let (Some(ref pool), Some(rid)) = (&db_pool, run_id) {
+                            if let Err(e) = BondsRepository::save_bond(pool, rid, &bond).await {
+                                warn!("Failed to save bond {} to DB: {}", bond.ticker, e);
+                            }
+                        }
                         all_bonds.push(bond);
                     }
                     Ok(None) => {
@@ -443,6 +461,19 @@ impl BondsCrawler {
     }
 
     pub async fn run_crawl_loop(&mut self, duration_minutes: Option<u64>) -> Result<Vec<BondListItem>> {
+        // Create a DB run record before starting the crawl
+        if let Some(ref pool) = self.db_pool {
+            match BondsRepository::create_crawl_run(pool, &self.config.tbank_url, self.config.headless_chrome).await {
+                Ok(id) => {
+                    info!("Crawl run created in DB: {}", id);
+                    self.run_id = Some(id);
+                }
+                Err(e) => {
+                    warn!("Failed to create crawl run in DB: {}", e);
+                }
+            }
+        }
+
         self.initialize().await?;
         self.navigate_to_bonds().await?;
         self.wait_for_login().await?;
@@ -471,6 +502,16 @@ impl BondsCrawler {
             }
 
             sleep(Duration::from_secs(self.config.poll_interval_seconds)).await;
+        }
+
+        // Mark the run as completed in the DB
+        if let (Some(ref pool), Some(run_id)) = (&self.db_pool, self.run_id) {
+            let bonds_count = total_bonds.len() as i32;
+            if let Err(e) = BondsRepository::finish_crawl_run(pool, run_id, bonds_count, "completed", None).await {
+                warn!("Failed to finish crawl run {} in DB: {}", run_id, e);
+            } else {
+                info!("Crawl run {} finished: {} bonds", run_id, bonds_count);
+            }
         }
 
         Ok(total_bonds)

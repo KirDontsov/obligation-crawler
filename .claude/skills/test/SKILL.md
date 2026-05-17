@@ -1,0 +1,248 @@
+---
+name: test
+description: >-
+  Create Rust unit tests for a function, struct, or service following project
+  testing conventions: #[cfg(test)] modules, tokio::test for async, should_X_when_Y
+  naming, no unwrap in non-test production paths. Trigger when the user needs to
+  write tests, add coverage, or asks "test X", "write tests for X", "add unit tests
+  for X". Also trigger after implementing a feature to add the test coverage step.
+user-invocable: true
+argument-hint: "[FunctionOrModuleName]"
+model: sonnet
+---
+
+# Testing Template
+
+**Target:** $ARGUMENTS
+
+## Context
+- Branch: !`git branch --show-current`
+- Target file: !`find src -name "*.rs" | xargs grep -l "$ARGUMENTS" 2>/dev/null | head -5`
+
+---
+
+## Task
+
+Add tests for **$ARGUMENTS** in the appropriate location:
+- Pure functions → `#[cfg(test)]` module at the bottom of the same file
+- Integration-level → `tests/[name].rs` at crate root
+
+---
+
+## Rules
+
+1. `#[test]` for sync, `#[tokio::test]` for async — no mixing
+2. `unwrap()` is allowed freely inside `#[cfg(test)]` blocks
+3. No real network/DB/WebDriver calls in unit tests — use `#[ignore]` for integration tests
+4. Each test covers exactly ONE scenario — no branching inside a test
+5. Arrange / Act / Assert structure, not interleaved
+
+---
+
+## Naming Convention
+
+```
+fn should_[expected_behavior]_when_[condition]()
+fn should_[expected_behavior]_given_[state]()
+```
+
+Examples:
+```rust
+fn should_return_none_when_cells_count_is_less_than_four()
+fn should_parse_price_given_text_with_ruble_sign()
+fn should_use_default_url_when_env_var_not_set()
+fn should_fail_with_rabbitmq_error_when_url_is_invalid()
+```
+
+---
+
+## Unit Test Pattern (pure functions)
+
+```rust
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn should_clean_nbsp_when_text_contains_non_breaking_space() {
+        // Arrange
+        let input = "1\u{A0}234,56₽";
+        // Act
+        let result = clean_number_text(input);
+        // Assert
+        assert_eq!(result, "1234.56");
+    }
+
+    #[test]
+    fn should_return_empty_string_when_input_is_only_whitespace() {
+        assert_eq!(clean_number_text("   "), "");
+    }
+}
+```
+
+---
+
+## Config Test Pattern
+
+```rust
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn should_use_default_poll_interval_when_env_var_not_set() {
+        std::env::remove_var("POLL_INTERVAL_SECONDS");
+        let config = CrawlerConfig::from_env().unwrap();
+        assert_eq!(config.poll_interval_seconds, 5);
+    }
+
+    #[test]
+    fn should_fail_with_invalid_value_when_poll_interval_is_not_a_number() {
+        std::env::set_var("POLL_INTERVAL_SECONDS", "abc");
+        let result = CrawlerConfig::from_env();
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), ConfigError::InvalidValue(_, _)));
+        std::env::remove_var("POLL_INTERVAL_SECONDS");
+    }
+}
+```
+
+---
+
+## Error Variant Test Pattern
+
+```rust
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn should_convert_serde_error_to_parse_error() {
+        let bad_json = "{ invalid }";
+        let err: serde_json::Error = serde_json::from_str::<serde_json::Value>(bad_json)
+            .unwrap_err();
+        let crawler_err = CrawlerError::from(err);
+        assert!(matches!(crawler_err, CrawlerError::ParseError(_)));
+    }
+}
+```
+
+---
+
+## Async Service Test Pattern
+
+```rust
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn should_fail_with_rabbitmq_error_when_url_is_invalid() {
+        let result = RabbitMQProducer::new(
+            "not-a-url".to_string(),
+            "exchange".to_string(),
+        ).await;
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), CrawlerError::RabbitMQError(_)));
+    }
+}
+```
+
+---
+
+## Model / Serialization Test Pattern
+
+```rust
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn should_serialize_bond_list_item_to_valid_json() {
+        let bond = BondListItem {
+            ticker: "SBR001".to_string(),
+            name: "Test Bond".to_string(),
+            price: Some(998.5),
+            yield_to_maturity: Some(14.5),
+            coupon_type: None,
+            next_coupon: None,
+            maturity: None,
+            volume: None,
+            accrued_coupon_income: None,
+            coupon_amount: None,
+            payments_per_year: None,
+            subordinated: None,
+            amortization: None,
+            for_qualified_investors: None,
+            change_today: None,
+            analysis: None,
+        };
+        let json = serde_json::to_string(&bond).unwrap();
+        assert!(json.contains("SBR001"));
+        assert!(json.contains("998.5"));
+    }
+
+    #[test]
+    fn should_roundtrip_bond_through_json_serialization() {
+        let original = BondListItem {
+            ticker: "ROUND01".to_string(),
+            name: "Roundtrip Bond".to_string(),
+            price: Some(1000.0),
+            ..BondListItem {
+                // fill required fields
+                yield_to_maturity: None, coupon_type: None,
+                next_coupon: None, maturity: None, volume: None,
+                accrued_coupon_income: None, coupon_amount: None,
+                payments_per_year: None, subordinated: None,
+                amortization: None, for_qualified_investors: None,
+                change_today: None, analysis: None,
+                ticker: "".to_string(), name: "".to_string(),
+            }
+        };
+        let json = serde_json::to_string(&original).unwrap();
+        let restored: BondListItem = serde_json::from_str(&json).unwrap();
+        assert_eq!(restored.ticker, original.ticker);
+        assert_eq!(restored.price, original.price);
+    }
+}
+```
+
+---
+
+## Integration Test Pattern (requires external service)
+
+```rust
+// tests/rabbitmq_integration.rs
+#[tokio::test]
+#[ignore = "requires running RabbitMQ on localhost:5672"]
+async fn should_publish_and_ack_bonds_data() {
+    let url = std::env::var("RABBITMQ_URL")
+        .unwrap_or_else(|_| "amqp://guest:guest@localhost:5672".to_string());
+    let producer = RabbitMQProducer::new(url, "test_exchange".to_string())
+        .await
+        .unwrap();
+    let result = producer.publish_bonds_data(r#"[{"ticker":"T001"}]"#).await;
+    assert!(result.is_ok());
+}
+```
+
+Run with: `cargo test -- --ignored`
+
+---
+
+## Checklist
+
+- [ ] Happy path tested
+- [ ] Error/failure path tested for every `Result`-returning function
+- [ ] No real I/O in unit tests (network, DB, WebDriver)
+- [ ] Integration tests marked `#[ignore]`
+- [ ] Naming follows `should_X_when_Y` pattern
+- [ ] `#[cfg(test)]` module at bottom of source file (not a separate file)
+- [ ] `cargo test` passes
+
+## Validate
+
+```bash
+cargo test [test_module_or_fn] 2>&1
+cargo clippy -- -D warnings 2>&1 | head -20
+```
