@@ -2,6 +2,7 @@ use crate::config::ConfigError;
 use thirtyfour::error::WebDriverError;
 use thiserror::Error;
 
+#[allow(clippy::enum_variant_names)]
 #[derive(Error, Debug)]
 pub enum CrawlerError {
 	#[error("Crawler error: {0}")]
@@ -25,6 +26,7 @@ pub enum CrawlerError {
 	#[error("Request error: {0}")]
 	RequestError(#[from] reqwest::Error),
 
+	#[allow(dead_code)]
 	#[error("Ack error: {0}")]
 	AckError(String),
 

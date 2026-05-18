@@ -3,6 +3,7 @@ use csv::Writer;
 use serde::{Deserialize, Serialize};
 use std::fs::{self, OpenOptions};
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Bond {
 	pub name: String,
@@ -43,7 +44,7 @@ impl BondListItem {
 
 		let mut wtr = Writer::from_path(filename)?;
 
-		wtr.write_record(&[
+		wtr.write_record([
 			"Название",
 			"Тикер",
 			"Цена",
@@ -78,7 +79,7 @@ impl BondListItem {
 
 		let mut wtr = Writer::from_writer(file);
 
-		wtr.write_record(&[
+		wtr.write_record([
 			&bond.name,
 			&bond.ticker,
 			&bond.price.map(|p| p.to_string()).unwrap_or_default(),

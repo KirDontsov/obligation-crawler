@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CrawlerTask {
 	pub task_id: String,
@@ -9,6 +10,7 @@ pub struct CrawlerTask {
 }
 
 impl CrawlerTask {
+	#[allow(dead_code)]
 	pub fn new(task_type: String, request_data: CrawlerRequestData) -> Self {
 		Self {
 			task_id: Uuid::new_v4().to_string(),
@@ -18,6 +20,7 @@ impl CrawlerTask {
 	}
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CrawlerRequestData {
 	pub request: String,
@@ -26,6 +29,7 @@ pub struct CrawlerRequestData {
 	pub user_id: Option<i64>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BondCrawlerTask {
 	pub task_id: String,
@@ -33,6 +37,7 @@ pub struct BondCrawlerTask {
 }
 
 impl BondCrawlerTask {
+	#[allow(dead_code)]
 	pub fn new() -> Self {
 		Self {
 			task_id: Uuid::new_v4().to_string(),

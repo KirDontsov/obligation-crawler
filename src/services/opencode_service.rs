@@ -11,8 +11,7 @@ pub fn analyze_bond(bond: &BondListItem) -> Result<String, Box<dyn Error + Send 
 		.arg(&prompt)
 		.output()
 		.map_err(|e| {
-			Box::new(std::io::Error::new(
-				std::io::ErrorKind::Other,
+			Box::new(std::io::Error::other(
 				format!("Failed to execute opencode: {}", e),
 			)) as Box<dyn std::error::Error + Send + Sync>
 		})?;
@@ -21,16 +20,14 @@ pub fn analyze_bond(bond: &BondListItem) -> Result<String, Box<dyn Error + Send 
 		let stderr =
 			String::from_utf8(output.stderr).unwrap_or_else(|_| "Unknown error".to_string());
 		eprintln!("opencode command failed: {}", stderr);
-		return Err(Box::new(std::io::Error::new(
-			std::io::ErrorKind::Other,
+		return Err(Box::new(std::io::Error::other(
 			format!("opencode command failed: {}", stderr),
 		)) as Box<dyn std::error::Error + Send + Sync>);
 	}
 
 	let result = String::from_utf8(output.stdout).map_err(|e| {
 		eprintln!("Failed to parse opencode output: {}", e);
-		Box::new(std::io::Error::new(
-			std::io::ErrorKind::Other,
+		Box::new(std::io::Error::other(
 			format!("Failed to parse opencode output: {}", e),
 		)) as Box<dyn std::error::Error + Send + Sync>
 	})?;

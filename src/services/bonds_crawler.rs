@@ -1,10 +1,10 @@
 use crate::config::CrawlerConfig;
 use crate::error::{CrawlerError, Result};
-use crate::models::BondListItem;
+use crate::models::bonds::BondListItem;
 use crate::repository::BondsRepository;
-use crate::services::analyze_bond;
+use crate::services::opencode_service::analyze_bond;
 use chrono::Utc;
-use log::{error, info, warn};
+use log::{info, warn};
 use thirtyfour::{ChromiumLikeCapabilities, DesiredCapabilities, WebDriver, WebElement};
 use tokio::time::{sleep, Duration};
 use uuid::Uuid;
@@ -344,11 +344,9 @@ async fn collect_bond_details_inner(driver: &WebDriver) -> Result<BondDetails> {
 					if details.subordinated.is_none() {
 						details.subordinated = Some(value.trim().to_string());
 					}
-				} else if label_str.contains("Амортизация") {
-					if details.amortization.is_none() {
+				} else if label_str.contains("Амортизация") && details.amortization.is_none() {
 						details.amortization = Some(value.trim().to_string());
 					}
-				}
 			}
 		}
 	}
@@ -363,27 +361,15 @@ async fn collect_bond_details_inner(driver: &WebDriver) -> Result<BondDetails> {
 	);
 	println!(
 		"[DEBUG]   Дата погашения облигации: {}",
-		details
-			.maturity
-			.as_ref()
-			.map(|s| s.as_str())
-			.unwrap_or("N/A")
+		details.maturity.as_deref().unwrap_or("N/A")
 	);
 	println!(
 		"[DEBUG]   Дата выплаты купона: {}",
-		details
-			.next_coupon
-			.as_ref()
-			.map(|s| s.as_str())
-			.unwrap_or("N/A")
+		details.next_coupon.as_deref().unwrap_or("N/A")
 	);
 	println!(
 		"[DEBUG]   Тип купона: {}",
-		details
-			.coupon_type
-			.as_ref()
-			.map(|s| s.as_str())
-			.unwrap_or("N/A")
+		details.coupon_type.as_deref().unwrap_or("N/A")
 	);
 	println!(
 		"[DEBUG]   Накопленный купонный доход: {}₽",
@@ -415,27 +401,15 @@ async fn collect_bond_details_inner(driver: &WebDriver) -> Result<BondDetails> {
 	);
 	println!(
 		"[DEBUG]   Субординированность: {}",
-		details
-			.subordinated
-			.as_ref()
-			.map(|s| s.as_str())
-			.unwrap_or("N/A")
+		details.subordinated.as_deref().unwrap_or("N/A")
 	);
 	println!(
 		"[DEBUG]   Амортизация: {}",
-		details
-			.amortization
-			.as_ref()
-			.map(|s| s.as_str())
-			.unwrap_or("N/A")
+		details.amortization.as_deref().unwrap_or("N/A")
 	);
 	println!(
 		"[DEBUG]   Для квалифицированных инвесторов: {}",
-		details
-			.for_qualified_investors
-			.as_ref()
-			.map(|s| s.as_str())
-			.unwrap_or("N/A")
+		details.for_qualified_investors.as_deref().unwrap_or("N/A")
 	);
 
 	Ok(details)
@@ -490,7 +464,7 @@ impl BondsCrawler {
 		caps.add_arg("--disable-geolocation")?;
 		caps.add_arg("--lang=en-US")?;
 
-		let webdriver_url = format!("http://localhost:9515");
+		let webdriver_url = "http://localhost:9515".to_string();
 		self.driver = Some(WebDriver::new(&webdriver_url, caps).await?);
 
 		Ok(())
@@ -671,11 +645,8 @@ impl BondsCrawler {
 
 		loop {
 			match self.check_page_available().await {
-				Ok(true) => match self.collect_bonds().await {
-					Ok(bonds) => {
+				Ok(true) => if let Ok(bonds) = self.collect_bonds().await {
 						total_bonds.extend(bonds);
-					}
-					Err(_) => {}
 				},
 				Ok(false) => {}
 				Err(_) => {}

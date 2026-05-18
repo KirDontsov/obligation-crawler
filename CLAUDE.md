@@ -40,7 +40,7 @@ cargo fmt --check
 | `/model [Name]` | Create new model struct |
 | `/test [Name]` | Write unit/integration tests |
 | `/fix [Bug]` | Minimal targeted bug fix |
-| `/review` | Code review of current diff |
+| `/code-review` | Code review of current diff |
 
 Full workflow: `/ai/workflow.md`
 
