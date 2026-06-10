@@ -4,6 +4,7 @@ use lapin::{
 };
 
 pub struct RabbitMQProducer {
+	#[allow(dead_code)]
 	connection: Connection,
 	channel: Channel,
 	exchange: String,
@@ -13,12 +14,12 @@ impl RabbitMQProducer {
 	pub async fn new(connection_string: String, exchange: String) -> Result<Self, CrawlerError> {
 		let connection = Connection::connect(&connection_string, ConnectionProperties::default())
 			.await
-			.map_err(|e| CrawlerError::RabbitMQError(e))?;
+			.map_err(CrawlerError::RabbitMQError)?;
 
 		let channel = connection
 			.create_channel()
 			.await
-			.map_err(|e| CrawlerError::RabbitMQError(e))?;
+			.map_err(CrawlerError::RabbitMQError)?;
 
 		channel
 			.exchange_declare(
@@ -31,7 +32,7 @@ impl RabbitMQProducer {
 				FieldTable::default(),
 			)
 			.await
-			.map_err(|e| CrawlerError::RabbitMQError(e))?;
+			.map_err(CrawlerError::RabbitMQError)?;
 
 		println!(
 			"✅ RabbitMQ producer initialized with exchange: {}",
@@ -55,7 +56,7 @@ impl RabbitMQProducer {
 				BasicProperties::default(),
 			)
 			.await
-			.map_err(|e| CrawlerError::RabbitMQError(e))?;
+			.map_err(CrawlerError::RabbitMQError)?;
 
 		println!("📤 Published message to {}:{}", self.exchange, routing_key);
 		Ok(())
@@ -65,6 +66,7 @@ impl RabbitMQProducer {
 		self.publish("bonds.data", bonds_json).await
 	}
 
+	#[allow(dead_code)]
 	pub async fn publish_error(&self, error_message: &str) -> Result<(), CrawlerError> {
 		self.publish("bonds.error", error_message).await
 	}

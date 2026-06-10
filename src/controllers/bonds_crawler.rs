@@ -1,8 +1,9 @@
 use crate::config::CrawlerConfig;
 use crate::error::Result;
-use crate::models::BondListItem;
+use crate::models::bonds::BondListItem;
 use crate::services::bonds_crawler::BondsCrawler;
 
+#[allow(unused)]
 pub async fn run_bonds_crawler(
 	config: CrawlerConfig,
 	duration_minutes: Option<u64>,
@@ -14,6 +15,7 @@ pub async fn run_bonds_crawler(
 	Ok(bonds)
 }
 
+#[allow(unused)]
 pub async fn collect_bonds_once(
 	config: CrawlerConfig,
 	db_pool: Option<sqlx::PgPool>,

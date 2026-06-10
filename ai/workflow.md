@@ -10,13 +10,13 @@
 | `/model` | model name | `src/models/[name].rs` |
 | `/test` | module or fn name | tests in `#[cfg(test)]` or `tests/` |
 | `/fix` | bug description | minimal fix + regression test |
-| `/review` | file / empty | `ai/reviews/YYYY-MM-DD-review.md` (optional) |
+| `/code-review` | file / empty | `ai/reviews/YYYY-MM-DD-review.md` (optional) |
 
 ---
 
 ## Documents read by skills
 
-| Document | research | plan | review |
+| Document | research | plan | code-review |
 |----------|:--------:|:----:|:------:|
 | `ai/context.md` | ✅ | ✅ | ✅ |
 | `ai/docs/module-architecture.md` | ✅ | ✅ | ✅ |
@@ -31,12 +31,12 @@
 
 **New feature (full cycle)**
 ```
-/research → /plan → /model → /service → /test → /review
+/research → /plan → /model → /service → /test → /code-review
 ```
 
 **Bug fix**
 ```
-/fix → /review
+/fix → /code-review
 ```
 
 **New service from existing plan**
@@ -46,5 +46,5 @@
 
 **Review before merge**
 ```
-/review   (no arguments — looks at current git diff)
+/code-review   (no arguments — looks at current git diff)
 ```

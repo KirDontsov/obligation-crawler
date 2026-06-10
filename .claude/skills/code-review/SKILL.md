@@ -1,5 +1,5 @@
 ---
-name: review
+name: code-review
 description: >-
   Perform a strict adversarial code review using dual agents (Finder + Auditor).
   The Finder identifies issues across architecture, Rust idioms, async safety,

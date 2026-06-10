@@ -1,0 +1,10 @@
+{
+  "workflow": "yolo",
+  "planning": {
+    "commit_docs": true,
+    "search_gitignored": false
+  },
+  "intel": {
+    "enabled": false
+  }
+}

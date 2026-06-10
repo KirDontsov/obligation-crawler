@@ -2,9 +2,10 @@ use chrono::{DateTime, Utc};
 use sqlx::{PgPool, Row};
 use uuid::Uuid;
 
-use crate::models::BondListItem;
+use crate::models::bonds::BondListItem;
 
 /// Persisted representation of a single crawl session.
+#[allow(dead_code)]
 #[derive(sqlx::FromRow, Debug)]
 pub struct ObligationCrawlerRun {
 	pub id: Uuid,
@@ -19,6 +20,7 @@ pub struct ObligationCrawlerRun {
 }
 
 /// Persisted representation of a single bond collected during a run.
+#[allow(dead_code)]
 #[derive(sqlx::FromRow, Debug)]
 pub struct BondRecord {
 	pub id: Uuid,
@@ -145,6 +147,7 @@ impl BondsRepository {
 	}
 
 	/// Fetches all bonds for a given run, ordered by creation time.
+	#[allow(dead_code)]
 	pub async fn get_bonds_for_run(
 		pool: &PgPool,
 		run_id: Uuid,
@@ -160,6 +163,7 @@ impl BondsRepository {
 	}
 
 	/// Fetches the N most recent completed runs.
+	#[allow(dead_code)]
 	pub async fn get_recent_runs(
 		pool: &PgPool,
 		limit: i64,
@@ -184,7 +188,6 @@ mod tests {
 
 	#[test]
 	fn should_have_all_bond_record_fields() {
-		// Compile-time check: BondRecord fields match BondListItem
 		let bond = BondListItem {
 			ticker: "T001".to_string(),
 			name: "Test".to_string(),
@@ -205,5 +208,78 @@ mod tests {
 		};
 		assert_eq!(bond.ticker, "T001");
 		assert_eq!(bond.price, Some(998.0));
+	}
+
+	#[test]
+	fn obligation_crawler_run_has_required_fields() {
+		let run = ObligationCrawlerRun {
+			id: Uuid::new_v4(),
+			started_at: chrono::Utc::now(),
+			finished_at: None,
+			tbank_url: "https://example.com".to_string(),
+			headless_chrome: true,
+			status: "running".to_string(),
+			bonds_count: 0,
+			error_message: None,
+			duration_seconds: None,
+		};
+		assert_eq!(run.status, "running");
+		assert!(run.started_at <= chrono::Utc::now());
+	}
+
+	#[test]
+	fn run_status_values_are_valid() {
+		let valid_statuses = vec!["running", "completed", "failed"];
+		for status in valid_statuses {
+			let run = ObligationCrawlerRun {
+				id: Uuid::new_v4(),
+				started_at: chrono::Utc::now(),
+				finished_at: Some(chrono::Utc::now()),
+				tbank_url: "test".to_string(),
+				headless_chrome: false,
+				status: status.to_string(),
+				bonds_count: 5,
+				error_message: None,
+				duration_seconds: Some(60),
+			};
+			assert!(matches!(
+				run.status.as_str(),
+				"running" | "completed" | "failed"
+			));
+		}
+	}
+
+	#[test]
+	fn run_with_completed_status_has_finished_at() {
+		let run = ObligationCrawlerRun {
+			id: Uuid::new_v4(),
+			started_at: chrono::Utc::now(),
+			finished_at: Some(chrono::Utc::now()),
+			tbank_url: "test".to_string(),
+			headless_chrome: false,
+			status: "completed".to_string(),
+			bonds_count: 10,
+			error_message: None,
+			duration_seconds: Some(120),
+		};
+		assert!(run.finished_at.is_some());
+		assert_eq!(run.bonds_count, 10);
+	}
+
+	#[test]
+	fn run_with_failed_status_has_error_message() {
+		let run = ObligationCrawlerRun {
+			id: Uuid::new_v4(),
+			started_at: chrono::Utc::now(),
+			finished_at: Some(chrono::Utc::now()),
+			tbank_url: "test".to_string(),
+			headless_chrome: false,
+			status: "failed".to_string(),
+			bonds_count: 0,
+			error_message: Some("Connection timeout".to_string()),
+			duration_seconds: Some(30),
+		};
+		assert!(run.error_message.is_some());
+		assert_eq!(run.error_message.as_ref().unwrap(), "Connection timeout");
 	}
 }

@@ -18,6 +18,7 @@ use crate::services::bonds_crawler::BondsCrawler;
 use crate::services::rabbitmq_producer::RabbitMQProducer;
 
 #[tokio::main]
+#[allow(clippy::result_large_err)]
 async fn main() -> Result<(), CrawlerError> {
 	dotenv().ok();
 	env_logger::init();
@@ -65,12 +66,13 @@ async fn run_direct_mode(db_pool: Option<PgPool>) -> Result<(), CrawlerError> {
 		.unwrap_or(false);
 
 	let mut producer = if save_to_rabbitmq {
-		let rabbitmq_url = env::var("RABBITMQ_URL")
-			.unwrap_or_else(|_| "amqp://guest:guest@localhost:5672".to_string());
-		let exchange =
-			env::var("RABBITMQ_EXCHANGE").unwrap_or_else(|_| "obligation_exchange".to_string());
-
-		Some(RabbitMQProducer::new(rabbitmq_url, exchange).await?)
+		Some(
+			RabbitMQProducer::new(
+				config.rabbitmq_url.clone(),
+				config.rabbitmq_exchange.clone(),
+			)
+			.await?,
+		)
 	} else {
 		None
 	};
@@ -99,21 +101,15 @@ async fn run_direct_mode(db_pool: Option<PgPool>) -> Result<(), CrawlerError> {
 		);
 		println!(
 			"   Дата погашения: {}",
-			bond.maturity.as_ref().map(|m| m.as_str()).unwrap_or("N/A")
+			bond.maturity.as_deref().unwrap_or("N/A")
 		);
 		println!(
 			"   Дата выплаты купона: {}",
-			bond.next_coupon
-				.as_ref()
-				.map(|s| s.as_str())
-				.unwrap_or("N/A")
+			bond.next_coupon.as_deref().unwrap_or("N/A")
 		);
 		println!(
 			"   Тип купона: {}",
-			bond.coupon_type
-				.as_ref()
-				.map(|s| s.as_str())
-				.unwrap_or("N/A")
+			bond.coupon_type.as_deref().unwrap_or("N/A")
 		);
 		println!(
 			"   Накопленный купонный доход: {}₽",
@@ -141,26 +137,17 @@ async fn run_direct_mode(db_pool: Option<PgPool>) -> Result<(), CrawlerError> {
 		);
 		println!(
 			"   Субординированность: {}",
-			bond.subordinated
-				.as_ref()
-				.map(|s| s.as_str())
-				.unwrap_or("N/A")
+			bond.subordinated.as_deref().unwrap_or("N/A")
 		);
 		println!(
 			"   Амортизация: {}",
-			bond.amortization
-				.as_ref()
-				.map(|s| s.as_str())
-				.unwrap_or("N/A")
+			bond.amortization.as_deref().unwrap_or("N/A")
 		);
 		println!(
 			"   Для квалифицированных инвесторов: {}",
-			bond.for_qualified_investors
-				.as_ref()
-				.map(|s| s.as_str())
-				.unwrap_or("N/A")
+			bond.for_qualified_investors.as_deref().unwrap_or("N/A")
 		);
-		println!("");
+		println!();
 	}
 
 	if let Some(ref mut p) = producer {
@@ -176,15 +163,18 @@ async fn run_direct_mode(db_pool: Option<PgPool>) -> Result<(), CrawlerError> {
 }
 
 async fn run_consumer_mode() -> Result<(), CrawlerError> {
-	let rabbitmq_url = env::var("RABBITMQ_URL")
-		.unwrap_or_else(|_| "amqp://guest:guest@localhost:5672".to_string());
+	let config = CrawlerConfig::from_env()?;
 
-	let queue_name =
-		env::var("RABBITMQ_QUEUE").unwrap_or_else(|_| "obligation_crawler_queue".to_string());
+	println!(
+		"Starting RabbitMQ consumer for queue: {}",
+		config.rabbitmq_queue
+	);
 
-	println!("Starting RabbitMQ consumer for queue: {}", queue_name);
-
-	let consumer = services::RabbitMQConsumer::new(rabbitmq_url, queue_name);
+	let consumer = services::rabbitmq_consumer::RabbitMQConsumer::new(
+		config.rabbitmq_url,
+		config.rabbitmq_queue,
+		config.rabbitmq_exchange,
+	);
 
 	consumer
 		.start_consuming(|message| {
