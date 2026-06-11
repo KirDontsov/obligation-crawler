@@ -28,6 +28,7 @@ async fn parse_bond_row_inner(
 	driver: &WebDriver,
 	row: &WebElement,
 	csv_filename: &Option<String>,
+	min_yield: f64,
 ) -> Result<Option<BondListItem>> {
 	// Проверяем, что элемент все еще валиден
 	let cells = match row.find_all(thirtyfour::By::Css("td")).await {
@@ -124,6 +125,18 @@ async fn parse_bond_row_inner(
 				.map(|p| p.to_string())
 				.unwrap_or_else(|| "N/A".to_string())
 		);
+	}
+
+	// Skip bonds at or below the CB key rate BEFORE the expensive detail parse.
+	// A missing list-page yield (parse glitch) is NOT dropped — parse it anyway.
+	if let Some(y) = yield_to_maturity {
+		if y <= min_yield {
+			println!(
+				"[DEBUG] Пропуск {}: доходность {}% ≤ ставка ЦБ {}%",
+				bond_ticker, y, min_yield
+			);
+			return Ok(None);
+		}
 	}
 
 	// Теперь находим ссылку и переходим по ней
@@ -487,6 +500,7 @@ impl BondsCrawler {
 		let csv_filename = self.csv_filename.clone();
 		let db_pool = self.db_pool.clone();
 		let run_id = self.run_id;
+		let min_yield = self.config.cb_key_rate;
 		let mut all_bonds = Vec::new();
 		let mut counts = RunCounts::default();
 		let mut page_num = 1;
@@ -543,7 +557,7 @@ impl BondsCrawler {
 					}
 				};
 
-				match parse_bond_row_inner(driver, &row, &csv_filename).await {
+				match parse_bond_row_inner(driver, &row, &csv_filename, min_yield).await {
 					Ok(Some(bond)) => {
 						// Save to database immediately (same pattern as CSV append)
 						if let (Some(ref pool), Some(rid)) = (&db_pool, run_id) {

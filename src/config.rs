@@ -23,6 +23,9 @@ pub struct CrawlerConfig {
 	pub rabbitmq_url: String,
 	pub rabbitmq_queue: String,
 	pub rabbitmq_exchange: String,
+	/// CB key rate (percent, e.g. 14.5). Bonds whose list-page yield is at or
+	/// below this are skipped before the detail parse. Read from `CB_KEY_RATE`.
+	pub cb_key_rate: f64,
 }
 
 impl CrawlerConfig {
@@ -66,6 +69,11 @@ impl CrawlerConfig {
 		let rabbitmq_exchange =
 			env::var("RABBITMQ_EXCHANGE").unwrap_or_else(|_| "obligation_exchange".to_string());
 
+		let cb_key_rate = env::var("CB_KEY_RATE")
+			.unwrap_or_else(|_| "14.5".to_string())
+			.parse::<f64>()
+			.map_err(|e| ConfigError::InvalidValue("CB_KEY_RATE".to_string(), e.to_string()))?;
+
 		Ok(Self {
 			tbank_url,
 			poll_interval_seconds,
@@ -76,6 +84,7 @@ impl CrawlerConfig {
 			rabbitmq_url,
 			rabbitmq_queue,
 			rabbitmq_exchange,
+			cb_key_rate,
 		})
 	}
 
@@ -101,6 +110,7 @@ impl CrawlerConfig {
 			rabbitmq_url,
 			rabbitmq_queue,
 			rabbitmq_exchange,
+			cb_key_rate: 14.5,
 		}
 	}
 }
