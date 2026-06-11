@@ -658,7 +658,20 @@ impl BondsCrawler {
 				}
 			}
 
-			sleep(Duration::from_secs(self.config.poll_interval_seconds)).await;
+			// Wait for the next poll tick, but break early on Ctrl+C so an
+			// interrupted crawl still falls through to finish_crawl_run below
+			// and is marked 'completed' (otherwise the run stays 'running' and
+			// its bonds stay hidden behind the latest-bonds view filter).
+			tokio::select! {
+				_ = sleep(Duration::from_secs(self.config.poll_interval_seconds)) => {}
+				result = tokio::signal::ctrl_c() => {
+					match result {
+						Ok(()) => info!("Received Ctrl+C — finishing crawl run gracefully"),
+						Err(e) => warn!("Failed to listen for Ctrl+C ({}); finishing crawl run", e),
+					}
+					break;
+				}
+			}
 		}
 
 		// Mark the run as completed in the DB

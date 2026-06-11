@@ -83,7 +83,7 @@
 
 **Build:**
 - `Cargo.toml`, `Cargo.lock`
-- `Dockerfile` - multi-stage build (nightly builder → `debian:bookworm-slim` runtime); installs `libssl-dev`, `libpq-dev`, `postgresql-client`. Note: copies binary from `target/release/crawler`, but the package name is `obligation-crawler` (binary mismatch risk - see CONCERNS).
+- `Dockerfile` - multi-stage build (nightly builder → `debian:bookworm-slim` runtime); installs `libssl-dev`, `libpq-dev`, `postgresql-client`. Note: copies binary from `target/release/obligation-crawler`, but the package name is `obligation-crawler` (binary mismatch risk - see CONCERNS).
 
 ## Platform Requirements
 

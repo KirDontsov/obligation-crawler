@@ -20,4 +20,4 @@ else
 echo "├➔ Драйвер для работы браузера уже запущен             | $(pgrep chromedriver)"
 fi
 echo "└➔ Запускаем СКАНЕР! (НЕ стартует? Повторите попытку!) | crawler"
-target/release/crawler
+target/release/obligation-crawler

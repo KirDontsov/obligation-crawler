@@ -52,7 +52,7 @@ WORKDIR /app
 RUN mkdir -p /app/avito_feeds_output && chown -R appuser:appuser /app
 
 # Copy the compiled binary from the builder stage
-COPY --from=builder /app/target/release/crawler /usr/local/bin/app
+COPY --from=builder /app/target/release/obligation-crawler /usr/local/bin/app
 
 # Change ownership of the app directory to the non-root user
 RUN chown -R appuser:appuser /app
