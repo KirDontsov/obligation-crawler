@@ -1,13 +1,28 @@
 use crate::config::CrawlerConfig;
 use crate::error::{CrawlerError, Result};
 use crate::models::bonds::BondListItem;
-use crate::repository::BondsRepository;
-use crate::services::opencode_service::analyze_bond;
+use crate::repository::{BondsRepository, SaveOutcome};
 use chrono::Utc;
 use log::{info, warn};
 use thirtyfour::{ChromiumLikeCapabilities, DesiredCapabilities, WebDriver, WebElement};
 use tokio::time::{sleep, Duration};
 use uuid::Uuid;
+
+/// Per-run tally of bond upsert outcomes, aggregated across poll iterations.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct RunCounts {
+	created: u32,
+	updated: u32,
+	unchanged: u32,
+}
+
+impl RunCounts {
+	fn add(&mut self, other: RunCounts) {
+		self.created += other.created;
+		self.updated += other.updated;
+		self.unchanged += other.unchanged;
+	}
+}
 
 async fn parse_bond_row_inner(
 	driver: &WebDriver,
@@ -148,7 +163,7 @@ async fn parse_bond_row_inner(
 		let final_yield = yield_to_maturity.or(details.yield_to_maturity);
 		let final_maturity = Some(maturity_date.clone()).or(details.maturity);
 
-		let mut bond_result = BondListItem {
+		let bond_result = BondListItem {
 			ticker: bond_ticker.clone(),
 			name: format!(
 				"{} | {} | {}%",
@@ -171,49 +186,6 @@ async fn parse_bond_row_inner(
 			change_today: None,
 			analysis: None,
 		};
-
-		// Проверяем срок погашения и цену - пропускаем анализ если:
-		// 1. Срок погашения меньше 1 года
-		// 2. Цена выше номинала более чем на 5 рублей
-		let skip_analysis = bond_result
-			.maturity
-			.as_ref()
-			.map(|maturity_str| {
-				if let Ok(date) = chrono::NaiveDate::parse_from_str(maturity_str, "%d.%m.%Y") {
-					let now = chrono::Utc::now().date_naive();
-					let one_year_later = now + chrono::Duration::days(365);
-					date < one_year_later
-				} else {
-					false
-				}
-			})
-			.unwrap_or(false)
-			|| bond_result
-				.price
-				.map(|price| price - 1000.0 > 5.0)
-				.unwrap_or(false);
-
-		// Анализируем облигацию через OpenCode (если срок > 1 года)
-		if skip_analysis {
-			println!(
-				"[DEBUG] Пропускаем анализ: срок погашения меньше 1 года - {}",
-				bond_result.ticker
-			);
-		} else {
-			println!(
-				"[DEBUG] Анализируем облигацию через OpenCode: {}",
-				bond_result.ticker
-			);
-			match analyze_bond(&bond_result) {
-				Ok(analysis) => {
-					println!("[DEBUG] Анализ получен: {} chars", analysis.len());
-					bond_result.analysis = Some(analysis);
-				}
-				Err(e) => {
-					println!("[DEBUG] Ошибка анализа: {}", e);
-				}
-			}
-		}
 
 		// Записываем в CSV сразу после создания
 		if let Some(filename) = csv_filename {
@@ -506,7 +478,7 @@ impl BondsCrawler {
 		}
 	}
 
-	pub async fn collect_bonds(&mut self) -> Result<Vec<BondListItem>> {
+	pub async fn collect_bonds(&mut self) -> Result<(Vec<BondListItem>, RunCounts)> {
 		let driver = self
 			.driver
 			.as_mut()
@@ -516,6 +488,7 @@ impl BondsCrawler {
 		let db_pool = self.db_pool.clone();
 		let run_id = self.run_id;
 		let mut all_bonds = Vec::new();
+		let mut counts = RunCounts::default();
 		let mut page_num = 1;
 		let max_pages = 50;
 
@@ -574,8 +547,11 @@ impl BondsCrawler {
 					Ok(Some(bond)) => {
 						// Save to database immediately (same pattern as CSV append)
 						if let (Some(ref pool), Some(rid)) = (&db_pool, run_id) {
-							if let Err(e) = BondsRepository::save_bond(pool, rid, &bond).await {
-								warn!("Failed to save bond {} to DB: {}", bond.ticker, e);
+							match BondsRepository::save_bond(pool, rid, &bond).await {
+								Ok(SaveOutcome::Created) => counts.created += 1,
+								Ok(SaveOutcome::Updated) => counts.updated += 1,
+								Ok(SaveOutcome::Unchanged) => counts.unchanged += 1,
+								Err(e) => warn!("Failed to save bond {} to DB: {}", bond.ticker, e),
 							}
 						}
 						all_bonds.push(bond);
@@ -610,7 +586,7 @@ impl BondsCrawler {
 			}
 		}
 
-		Ok(all_bonds)
+		Ok((all_bonds, counts))
 	}
 
 	pub async fn run_crawl_loop(
@@ -642,11 +618,13 @@ impl BondsCrawler {
 
 		let start_time = std::time::Instant::now();
 		let mut total_bonds = Vec::new();
+		let mut totals = RunCounts::default();
 
 		loop {
 			match self.check_page_available().await {
-				Ok(true) => if let Ok(bonds) = self.collect_bonds().await {
+				Ok(true) => if let Ok((bonds, counts)) = self.collect_bonds().await {
 						total_bonds.extend(bonds);
+						totals.add(counts);
 				},
 				Ok(false) => {}
 				Err(_) => {}
@@ -686,6 +664,11 @@ impl BondsCrawler {
 				info!("Crawl run {} finished: {} bonds", run_id, bonds_count);
 			}
 		}
+
+		info!(
+			"Bond persistence: created={} updated={} unchanged={}",
+			totals.created, totals.updated, totals.unchanged
+		);
 
 		Ok(total_bonds)
 	}

@@ -44,6 +44,14 @@ pub struct BondRecord {
 	pub created_at: DateTime<Utc>,
 }
 
+/// Outcome of an idempotent `save_bond` upsert. Lets callers tally per-run counters.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SaveOutcome {
+	Created,
+	Updated,
+	Unchanged,
+}
+
 pub struct BondsRepository;
 
 impl BondsRepository {
@@ -95,14 +103,43 @@ impl BondsRepository {
 		Ok(())
 	}
 
-	/// Inserts a single bond record linked to the given run.
-	/// Returns the generated bond UUID.
+	/// Upserts a single bond keyed by `ticker` (relies on the UNIQUE(ticker) constraint),
+	/// so a repeated run refreshes the existing row instead of erroring on a duplicate key.
+	///
+	/// Runs SELECT-then-upsert in one transaction so the caller learns whether the bond was
+	/// Created / Updated / Unchanged, and so a `price_history` row is written only when the
+	/// price or coupon actually changed.
+	///
+	/// On conflict it deliberately does NOT update:
+	/// - `ticker`     — the conflict key
+	/// - `created_at` — preserves first-seen time
+	/// - `analysis`   — owned by the downstream API; the crawler must not clobber it
+	///
+	/// `run_id` IS repointed to the current run. This is safe because the
+	/// `obligation_crawler_latest_bonds` view no longer filters on run status (migration 002),
+	/// so the bond stays visible to the API mid-run.
 	pub async fn save_bond(
 		pool: &PgPool,
 		run_id: Uuid,
 		bond: &BondListItem,
-	) -> Result<Uuid, sqlx::Error> {
-		let row = sqlx::query(
+	) -> Result<SaveOutcome, sqlx::Error> {
+		let mut tx = pool.begin().await?;
+
+		// Snapshot the volatile fields before the upsert to classify the outcome and to
+		// decide whether a price_history point is warranted.
+		let previous = sqlx::query(
+			"SELECT price, coupon_amount FROM obligation_crawler_bonds WHERE ticker = $1",
+		)
+		.bind(&bond.ticker)
+		.fetch_optional(&mut *tx)
+		.await?
+		.map(|row| {
+			let price: Option<f64> = row.get("price");
+			let coupon_amount: Option<f64> = row.get("coupon_amount");
+			(price, coupon_amount)
+		});
+
+		sqlx::query(
 			"INSERT INTO obligation_crawler_bonds (
                 run_id,
                 ticker, name,
@@ -120,7 +157,23 @@ impl BondsRepository {
                 $13, $14, $15,
                 $16, $17
             )
-            RETURNING id",
+            ON CONFLICT (ticker) DO UPDATE SET
+                run_id                  = EXCLUDED.run_id,
+                name                    = EXCLUDED.name,
+                price                   = EXCLUDED.price,
+                yield_to_maturity       = EXCLUDED.yield_to_maturity,
+                coupon_type             = EXCLUDED.coupon_type,
+                next_coupon             = EXCLUDED.next_coupon,
+                coupon_amount           = EXCLUDED.coupon_amount,
+                accrued_coupon_income   = EXCLUDED.accrued_coupon_income,
+                payments_per_year       = EXCLUDED.payments_per_year,
+                maturity                = EXCLUDED.maturity,
+                volume                  = EXCLUDED.volume,
+                subordinated            = EXCLUDED.subordinated,
+                amortization            = EXCLUDED.amortization,
+                for_qualified_investors = EXCLUDED.for_qualified_investors,
+                change_today            = EXCLUDED.change_today,
+                updated_at              = NOW()",
 		)
 		.bind(run_id)
 		.bind(&bond.ticker)
@@ -139,11 +192,35 @@ impl BondsRepository {
 		.bind(&bond.for_qualified_investors)
 		.bind(bond.change_today)
 		.bind(&bond.analysis)
-		.fetch_one(pool)
+		.execute(&mut *tx)
 		.await?;
 
-		let id: Uuid = row.get("id");
-		Ok(id)
+		let outcome = match previous {
+			None => SaveOutcome::Created,
+			Some((prev_price, prev_coupon)) => {
+				if prev_price != bond.price || prev_coupon != bond.coupon_amount {
+					// Price or coupon moved — record a history point.
+					sqlx::query(
+						"INSERT INTO obligation_crawler_price_history
+                            (ticker, price, coupon_amount, run_id)
+                         VALUES ($1, $2, $3, $4)",
+					)
+					.bind(&bond.ticker)
+					.bind(bond.price)
+					.bind(bond.coupon_amount)
+					.bind(run_id)
+					.execute(&mut *tx)
+					.await?;
+					SaveOutcome::Updated
+				} else {
+					SaveOutcome::Unchanged
+				}
+			}
+		};
+
+		tx.commit().await?;
+
+		Ok(outcome)
 	}
 
 	/// Fetches all bonds for a given run, ordered by creation time.

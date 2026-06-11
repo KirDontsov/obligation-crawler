@@ -31,7 +31,7 @@ pub async fn collect_bonds_once(
 		return Ok(Vec::new());
 	}
 
-	let bonds = crawler.collect_bonds().await?;
+	let (bonds, _counts) = crawler.collect_bonds().await?;
 	crawler.close().await?;
 
 	Ok(bonds)
